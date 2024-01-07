@@ -1,0 +1,154 @@
+NVM
+\ Variables
+\ NONE!
+: NOP ( -- ) $9D C, ; IMMEDIATE \ compile in-line a NOP
+: ]B? ( c-addr bit -- f )
+     $905F , 2* $7201 + , , $0290 , $5A5A , $5AFF , ]
+; IMMEDIATE
+: ]B! ( 1|0 addr bit -- )
+  ROT 0= 1 AND SWAP 2* $10 + + $72 C, C, , ]
+; IMMEDIATE 
+: ]C! $35 C, SWAP C, , ] ; IMMEDIATE
+RAM
+
+NVM
+\ Port C Pins
+7 constant _TxEn \ 0b1000 0000
+
+\ Port D pins
+2 constant _On?
+
+$50C6 CONSTANT CLK_DIVR
+
+NVM
+: :NVM ( -- xt ) NVM HERE ] ;
+: ;NVM ( xt -- xt ) POSTPONE [ $81 C, ;  IMMEDIATE
+
+RAM
+$50F0 CONSTANT AWU_CSR1  
+$50F1 CONSTANT AWU_APR
+$50F2 CONSTANT AWU_TBR
+$800E CONSTANT INT_AWU
+NVM
+
+: P500 ( -- )    \ AWU period about 500ms
+  [ 62 AWU_APR ]C! [ $B AWU_TBR ]C!
+  [ 16 AWU_CSR1 ]C! \ AWU enabled
+  [ $8E C, ] \ HALT for AWU period
+  [ 0 AWU_TBR ]C! \ reduce power consumption
+;
+:NVM              \ interrupt handler, "headerless" code
+   SAVEC
+   AWU_CSR1 C@ \ reading clears the interrupt
+   IRET
+;NVM ( xt ) INT_AWU !
+
+RAM 
+\ **** registers for low power consumption
+$50C0 CONSTANT CLK_ICKR
+$505A CONSTANT FLASH_CR1
+$50C7 CONSTANT CLK_PCKENR1
+$50CA CONSTANT CLK_PCKENR2
+$5200 CONSTANT SPI_CR1
+$5210 CONSTANT I2C_CR1
+$5235 CONSTANT UART1_CR2
+$5401 CONSTANT ADC_CR1
+$5250 CONSTANT TIM1_CR1
+$5300 CONSTANT TIM2_CR1
+$5340 CONSTANT TIM4_CR1
+
+$5000 constant PA_ODR
+$5002 constant PA_DDR
+$5005 constant PB_ODR
+$5007 constant PB_DDR
+$500A constant PC_ODR
+$500C constant PC_DDR
+$500D constant PC_CR1
+$500E constant PC_CR2
+$500F constant PD_ODR
+$500F constant PD_IDR
+$5011 constant PD_DDR
+$5012 constant PD_CR1
+$5014 constant PE_IDR
+$5016 constant PE_DDR
+$5019 constant PF_IDR
+$501B constant PF_DDR
+
+NVM 
+: _TXon  [ 1 PC_ODR _TxEn ]B!  ; 
+: _TXoff  [ 0 PC_ODR _TxEn ]B! NOP NOP NOP NOP NOP NOP ; \ 8 bytes 
+
+: .0  _TXoff _TXon ;
+: .1  _TXoff _TXoff _TXon ;
+: .End 
+  NOP NOP NOP _TxOff  \  turn tx off
+;
+: Startx2 ( -- ) \ transmit start pulses
+    _TXoff _TXoff _TXon _TXon _TXon \ 00011
+    _TXoff _TXoff _TXon _TXon _TXon 
+   \ tx turned off by next bit in packet
+;
+     
+: Tx.On ( -- ) 
+   STARTx2
+   .0 .1 .0 .1 .0 .1 .0 .1 
+   .End
+;
+: Tx.Off ( -- )
+   STARTx2
+   .1 .0 .1 .0 .1 .0 .1 .0
+   .End
+;
+
+: set_pins  ( -- )
+   [ 1 PC_DDR _TxEn ]B!  \ Port c outputs
+   [ 1 PC_CR1 _TxEn ]B!  \ _TxEn is push pull
+   [ 1 PC_CR2 _TxEn ]B!  \ _TxEn is fast
+;
+: MIN_I \ prepare for mimimum current draw
+\ on reset these are off but included for reference if needed   
+   [ 0 SPI_CR1 6 ]B! \ SPI off
+   [ 0 I2C_CR1 0 ]B! \ I2C off
+   [ 0 UART1_CR2 3 ]B! \ UART tX off
+   [ 0 UART1_CR2 2 ]B! \ UART RX off
+   [ 0 ADC_CR1 0 ]B! \ ADC off
+   [ 0 TIM1_CR1 0 ]B! \ Tim1 off
+   [ 0 TIM2_CR1 0 ]B! \ Tim2 off
+   [ 0 TIM4_CR1 0 ]B! \ Tim4 off
+   
+   [ 1 CLK_ICKR 5 ]B! \ MVR regulator OFF in Active-halt mode
+   [ 1 FLASH_CR1 2 ]B! \ Flash powered down in aCtive Halt mode
+   [ 0 CLK_PCKENR1 ]C! \ No clock to peripherals
+\   [ 0 CLK_PCKENR2 7 ]B! \ No clock to CAN - unused on STM8003
+   [ 0 CLK_PCKENR2 3 ]B! \ No clock to ADC
+\   [ 0 CLK_PCKENR2 2 ]B! \ No clock to AWU
+
+\ following made need adjustment for connected hardware !!!   
+   
+   [ $FF PA_DDR ]C! \ all ports made outputs 
+   [ $FF PB_DDR ]C! 
+   [ $FF PC_DDR ]C!
+   [ $FF PD_DDR ]C!
+   [ $0 PA_ODR ]C! \ all ports made outputs low level
+   [ $0 PB_ODR ]C! 
+   [ $0 PC_ODR ]C!
+   [ $0 PD_ODR ]C!
+;   
+: MAIN 
+   MIN_I \ set everything to minimise current draw
+   set_pins
+   $1D CLK_DIVR C! \   SlowClk to /8 /16 to 125KHz  
+	BEGIN
+      Tx.On P500 
+      Tx.On P500
+      Tx.On P500
+      Tx.Off P500
+      Tx.Off P500
+      Tx.Off P500
+	AGAIN
+;
+RAM
+	
+NVM
+' MAIN 'Boot ! 
+RAM
