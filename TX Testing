@@ -1,6 +1,15 @@
 NVM
+\ NVM is the word used to switch to non volatile memory. Everything from here 
+\ until we switch to RAM survies power cycles.
+
 \ Variables
-\ NONE!
+\ Variables are Memory Addresses which we can save and retrieve data from.
+\ Tip - Define these first to ensure the address they point to resides in the first 256 bytes of RAM. 
+\       That way they can be accessed with very fast assembly extensions should speed be needed.
+\       They can still be accessed with conventional Forth words @ < fetch > and ! <store >
+\ No User defined Variabels are used in this file.
+\ 
+\ Some assembley extensions. I use these all the time so I put them next
 : NOP ( -- ) $9D C, ; IMMEDIATE \ compile in-line a NOP
 : ]B? ( c-addr bit -- f )
      $905F , 2* $7201 + , , $0290 , $5A5A , $5AFF , ]
@@ -10,33 +19,51 @@ NVM
 ; IMMEDIATE 
 : ]C! $35 C, SWAP C, , ] ; IMMEDIATE
 RAM
+\ RAM is the word which switches to Random Access Memory. It also allows the words in NVM to survive power cycles.
 
 NVM
 \ Port C Pins
 7 constant _TxEn \ 0b1000 0000
-
-\ Port D pins
-2 constant _On?
+\ The TX enable pin sits on bit 7 of Port C
+\ Now, whenever the constant is used it pushes the number 7 onto the stack.
+\ You can call this almost anything
+\ I picked up the habit of prefacing all pin references with _ somewhere to help me remember what the word means.
 
 $50C6 CONSTANT CLK_DIVR
+\ A constant for the clock divider address
 
-NVM
+\ These are used to create an interrupt handler. Explanation for another day.
 : :NVM ( -- xt ) NVM HERE ] ;
 : ;NVM ( xt -- xt ) POSTPONE [ $81 C, ;  IMMEDIATE
 
 RAM
+\ These constants have been defined in RAM. They still push the number onto the stack when used
+\ but once the power is cycled they are lost. 
+\ However, any NVM word which referenced them has survived so the addresses are safely saved where they are needed.
+
+\ These are used to set up the active halt power down state
 $50F0 CONSTANT AWU_CSR1  
 $50F1 CONSTANT AWU_APR
 $50F2 CONSTANT AWU_TBR
 $800E CONSTANT INT_AWU
 NVM
 
-: P500 ( -- )    \ AWU period about 500ms
+\ When P500 is used it saves bytes in various registers, which in the STM8S chips means a memory adress, 
+\ This initialises the Auto Wakeup Routine and then executes an eative halt when the $81 op-code is executed.
+
+: P500 ( -- )    \ Auto Wakeup Period is about 500ms
+\ I am using [ to start assembling directly to memory
+\ Done for speed since I am trying to save every erg for battery life
+\ [ byte Address ]C! means save the byte at the given address
   [ 62 AWU_APR ]C! [ $B AWU_TBR ]C!
   [ 16 AWU_CSR1 ]C! \ AWU enabled
+\ Here, I directly code an instruction in NVM. 
   [ $8E C, ] \ HALT for AWU period
   [ 0 AWU_TBR ]C! \ reduce power consumption
 ;
+
+\ We have to deal with the interrupt when the chip wakes up.
+\ So just read it and exit the interrupt routine
 :NVM              \ interrupt handler, "headerless" code
    SAVEC
    AWU_CSR1 C@ \ reading clears the interrupt
@@ -44,7 +71,12 @@ NVM
 ;NVM ( xt ) INT_AWU !
 
 RAM 
-\ **** registers for low power consumption
+\ lots of constants here pointing to registers used for low power consumption
+\ No need to keep these once the words which refernce htem have been definined in NVM
+\ But you could if you wanted to and had the room in NVM
+\ It's very hard to run out of NVM so it's a personal choice most of the time where these are
+\ but good practice is to only save in NVM what has to survive a power cycle.
+
 $50C0 CONSTANT CLK_ICKR
 $505A CONSTANT FLASH_CR1
 $50C7 CONSTANT CLK_PCKENR1
@@ -75,37 +107,52 @@ $5019 constant PF_IDR
 $501B constant PF_DDR
 
 NVM 
+\ Two words which set the enable pin ON (high) or OFF (low)
 : _TXon  [ 1 PC_ODR _TxEn ]B!  ; 
 : _TXoff  [ 0 PC_ODR _TxEn ]B! NOP NOP NOP NOP NOP NOP ; \ 8 bytes 
 
+\ Now we can set a pin high or low, let's define words which send a 0 or a 1 over the RF link
 : .0  _TXoff _TXon ;
 : .1  _TXoff _TXoff _TXon ;
+
+\ The NOP's mean do nothing this clock cycle
+\ They were required because the CPU clock ahs been slowed down to 125kHz to save power.
+\ I will explain later why the NOP's appear where they do
 : .End 
   NOP NOP NOP _TxOff  \  turn tx off
 ;
-: Startx2 ( -- ) \ transmit start pulses
+
+
+: Startx2 ( -- ) \ transmit two start pulses
     _TXoff _TXoff _TXon _TXon _TXon \ 00011
     _TXoff _TXoff _TXon _TXon _TXon 
-   \ tx turned off by next bit in packet
+   \ TX turned off by next bit in packet
 ;
      
-: Tx.On ( -- ) 
+: Tx.On ( -- ) \ Transmit $55 over RF
    STARTx2
    .0 .1 .0 .1 .0 .1 .0 .1 
    .End
 ;
-: Tx.Off ( -- )
+: Tx.Off ( -- ) \ Transmit $AA over RF
    STARTx2
    .1 .0 .1 .0 .1 .0 .1 .0
    .End
 ;
 
+\ Set up the _TXEn pin to be a fast switching push pull output.
+\ [ 0|1 Addr Bit ]B! means start the compiler and save a 0 or 1 to the bit at the specified address
+\
+\ Alternative way is also shown
 : set_pins  ( -- )
    [ 1 PC_DDR _TxEn ]B!  \ Port c outputs
+\   $80 PC_DDR C! \ an alterntive way of setting bit 7 high in the PC_DDR register
+\                 \ I prefer ]B! since it leaves all other bits undisturbed.
    [ 1 PC_CR1 _TxEn ]B!  \ _TxEn is push pull
    [ 1 PC_CR2 _TxEn ]B!  \ _TxEn is fast
 ;
 : MIN_I \ prepare for mimimum current draw
+\ Changes a whole lot of hardware registers to achieve minimum current draw
 \ on reset these are off but included for reference if needed   
    [ 0 SPI_CR1 6 ]B! \ SPI off
    [ 0 I2C_CR1 0 ]B! \ I2C off
@@ -121,7 +168,7 @@ NVM
    [ 0 CLK_PCKENR1 ]C! \ No clock to peripherals
 \   [ 0 CLK_PCKENR2 7 ]B! \ No clock to CAN - unused on STM8003
    [ 0 CLK_PCKENR2 3 ]B! \ No clock to ADC
-\   [ 0 CLK_PCKENR2 2 ]B! \ No clock to AWU
+\   [ 0 CLK_PCKENR2 2 ]B! \ No clock to AWU  DEspite what datasheet says I found you have to 
 
 \ following made need adjustment for connected hardware !!!   
    
@@ -136,19 +183,21 @@ NVM
 ;   
 : MAIN 
    MIN_I \ set everything to minimise current draw
-   set_pins
-   $1D CLK_DIVR C! \   SlowClk to /8 /16 to 125KHz  
-	BEGIN
-      Tx.On P500 
-      Tx.On P500
-      Tx.On P500
-      Tx.Off P500
-      Tx.Off P500
-      Tx.Off P500
-	AGAIN
+   set_pins \ set up pin needed as an output
+   $1D CLK_DIVR C! \   Slow the CPU Clock to /8 /16 to 125KHz  
+   BEGIN
+      Tx.On P500 \ Send an ON byte then sleep for 500ms
+      Tx.On P500 \ Send an ON byte then sleep for 500ms
+      Tx.On P500 \ Send an ON byte then sleep for 500ms
+      Tx.Off P500 \ Send an OFF byte then sleep for 500ms 
+      Tx.Off P500 \ Send an OFF byte then sleep for 500ms
+      Tx.Off P500 \ Send an OFF byte then sleep for 500ms
+   AGAIN
 ;
 RAM
-	
-NVM
-' MAIN 'Boot ! 
-RAM
+\ with all the testing complete it is time to execute MAIN whenever poewr is applied	
+
+NVM 	\ switch to NVM
+' MAIN 	\ get the code field address of MAIN
+'Boot ! \ save it in 'Boot so that it is called when power is applied
+RAM 	\ switch back to RAM to make these changes non-volatile
