@@ -7,10 +7,11 @@ The concept had my hooked immediately. It uses RF It was really well written and
 
 My broad goal was a burst transmission of one to three bytes of data with long off periods. This required some maths to understand the tradeoff between battery life, data speed and preamble length. At present I am using a "pedestrian" data rate. My version of Roman's implementation has evolved to be a protocol with characteristics as follows (uS shown is measured):
 
-Preamble Pulse 5 units high to help the RX adjust gain (560uS)
-Start pulse is 3 units low, 2 units high. (560uS)
-Zero is one unit low, one unit high,and (298uS)
-One is two units low, one unit high       (410uS)
+* Preamble Pulse 5 units high to help the RX adjust gain (560uS)
+* Start pulse is 3 units low, 2 units high. (560uS)
+* Zero is one unit low, one unit high,and (298uS)
+* One is two units low, one unit high       (410uS)
+
 
 Each byte takes about 4ms to send and for testing I spaced them 500ms apart. In practice I expect I will send a packet of 1-3 bytes, repeated several times say 20ms apart before going into a long sleep.
 
