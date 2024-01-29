@@ -123,19 +123,19 @@ NVM
 ;
 
 
-: Startx2 ( -- ) \ transmit two start pulses
-    _TXoff _TXoff _TXon _TXon _TXon \ 00011
-    _TXoff _TXoff _TXon _TXon _TXon 
+: Tx.Start ( -- ) \ transmit two start pulses
+    _TXon _TXon _TXon _TXon _TXon \ 11111
+    _TXoff _TXoff _TXon _TXon _TXon \ 00111
    \ TX turned off by next bit in packet
 ;
      
 : Tx.On ( -- ) \ Transmit $55 over RF
-   STARTx2
+   Tx.Start
    .0 .1 .0 .1 .0 .1 .0 .1 
    .End
 ;
 : Tx.Off ( -- ) \ Transmit $AA over RF
-   STARTx2
+   Tx.Start
    .1 .0 .1 .0 .1 .0 .1 .0
    .End
 ;
