@@ -3,9 +3,9 @@ Roman Black's article using Run Length Encoding was the Inspiration
 
 I stumbled across Roman Black's article on using cheap RF modules for transmitting data. While the world has come a long way in the 10 years since Roman wrote about his findings those modules, and more modern ones at similar modest cost, are widely available. https://www.romanblack.com/RF/cheapRFmodules.htm
 
-The concept had my hooked immediately. It uses RF It was really well written and comprehensive Seemed like an ideal project that will enable other projects. I get a thrill out of using STM8 eForth. You should try it too.
+The concept had my hooked immediately. It uses RF It was really well written and comprehensive. And it seemed like an ideal project that will enable other projects. Plus I get a thrill out of using STM8 eForth. You should try it too.
 
-My broad goal was a burst transmission of one to three bytes of data with long off periods. This required some maths to understand the tradeoff between battery life, data speed and preamble length. At present I am using a "pedestrian" data rate, (uS shown is measured):
+My broad goal was a burst transmission of one to three bytes of data with long off periods. This required some maths to understand the tradeoff between battery life, data speed and preamble length. At present I am using a "pedestrian" data rate. My version of Roman's implementation has evolved to be a protocol with characteristics as follows (uS shown is measured):
 
 Preamble Pulse 5 units high to help the RX adjust gain (560uS)
 Start pulse is 3 units low, 2 units high. (560uS)
